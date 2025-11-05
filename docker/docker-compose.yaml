@@ -1,0 +1,30 @@
+version: "3.9"
+
+services:
+  app:
+    image: 3dv:latest
+    container_name: limap
+    tty: true
+    stdin_open: true
+    # GUI setup
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ${HOME}/.Xauthority:/home/limap/.Xauthority:ro
+      - ..:/app/limap:rw
+    # GPU access
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+    # Shared memory and device access
+    shm_size: "50g"
+    devices:
+      - /dev/dri:/dev/dri
+    # Network
+    network_mode: "host"
+    # Command (open bash when the container starts)
+    command: sleep infinity

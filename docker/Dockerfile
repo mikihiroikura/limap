@@ -18,7 +18,8 @@ RUN ssh-keyscan github.com >> /root/.ssh/known_hosts
 RUN git clone --recursive git@github.com:cvg/limap.git
 
 # From here, final image
-FROM nvidia/cuda:11.5.2-devel-ubuntu20.04
+FROM nvidia/cuda:12.1.1-devel-ubuntu22.04
+
 ARG CUDA_ARCHITECTURES=all
 
 # Prevent stop building ubuntu at time zone selection.  
@@ -48,6 +49,7 @@ RUN apt-get update && apt-get install -y \
     libceres-dev \
     libhdf5-dev \
     wget \
+    curl \
     software-properties-common \
     lsb-core
 
@@ -57,14 +59,12 @@ RUN wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/nul
     tee /etc/apt/trusted.gpg.d/kitware.gpg > \
     /dev/null
 
-RUN apt-add-repository "deb https://apt.kitware.com/ubuntu/ $(lsb_release -cs) main" && \
-    apt update && \
-    apt install kitware-archive-keyring && \
-    rm /etc/apt/trusted.gpg.d/kitware.gpg && \
-    apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 42D5A192B819C5DA
-
-RUN apt update && \
-    apt install -y cmake
+RUN curl -fsSL https://apt.kitware.com/keys/kitware-archive-latest.asc \
+    | gpg --dearmor -o /usr/share/keyrings/kitware-archive-keyring.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ $(lsb_release -cs) main" \
+    | tee /etc/apt/sources.list.d/kitware.list > /dev/null && \
+    apt-get update && apt-get install -y cmake && \
+    rm -rf /var/lib/apt/lists/*
 
 # Enable GUI
 RUN apt-get update \
@@ -92,11 +92,30 @@ ENV VIRTUAL_ENV=/opt/venv
 RUN /usr/bin/python3.9 -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
+# Add User ID and Group ID
+ARG UNAME=limap
+ARG UID=1000
+ARG GID=1000
+RUN groupadd -g $GID -o $UNAME
+RUN useradd -m -u $UID -g $GID -o -s /bin/bash $UNAME
+
+# Add User into sudoers, can run sudo command without password
+RUN apt update && apt install -y sudo
+RUN usermod -aG sudo ${UNAME}
+RUN echo "${UNAME} ALL=(ALL) NOPASSWD:ALL" | tee /etc/sudoers.d/${UNAME}
+
 # Copy the repository from the first image
-COPY --from=intermediate /limap /limap
-RUN python -m pip install torch==1.12.0 torchvision==0.13.0 --index-url https://download.pytorch.org/whl/cu115
+COPY --from=intermediate /limap /app/limap
+# Change owner of some folders for the development
+RUN chown -R $UNAME:$UNAME $VIRTUAL_ENV /app
+
+USER $UNAME
+WORKDIR /home/${UNAME}
+
+# Install Python dependencies
+RUN python -m pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121
 RUN python -m pip install --upgrade pip setuptools && \
-    cd limap && \
+    cd /app/limap && \
     python --version && \
     pip --version && \
     python -m pip install -r requirements.txt && \
