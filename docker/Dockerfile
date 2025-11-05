@@ -92,11 +92,30 @@ ENV VIRTUAL_ENV=/opt/venv
 RUN /usr/bin/python3.9 -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
+# Add User ID and Group ID
+ARG UNAME=limap
+ARG UID=1000
+ARG GID=1000
+RUN groupadd -g $GID -o $UNAME
+RUN useradd -m -u $UID -g $GID -o -s /bin/bash $UNAME
+
+# Add User into sudoers, can run sudo command without password
+RUN apt update && apt install -y sudo
+RUN usermod -aG sudo ${UNAME}
+RUN echo "${UNAME} ALL=(ALL) NOPASSWD:ALL" | tee /etc/sudoers.d/${UNAME}
+
 # Copy the repository from the first image
-COPY --from=intermediate /limap /limap
+COPY --from=intermediate /limap /app/limap
+# Change owner of some folders for the development
+RUN chown -R $UNAME:$UNAME $VIRTUAL_ENV /app
+
+USER $UNAME
+WORKDIR /home/${UNAME}
+
+# Install Python dependencies
 RUN python -m pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121
 RUN python -m pip install --upgrade pip setuptools && \
-    cd limap && \
+    cd /app/limap && \
     python --version && \
     pip --version && \
     python -m pip install -r requirements.txt && \
